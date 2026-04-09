@@ -1,0 +1,79 @@
+services:
+  users:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile
+    command: ["pnpm", "--filter", "@demo/users", "dev"]
+    environment:
+      PORT: 4101
+    ports:
+      - "4101:4101"
+
+  orders:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile
+    command: ["pnpm", "--filter", "@demo/orders", "dev"]
+    environment:
+      PORT: 4102
+    ports:
+      - "4102:4102"
+
+  catalog:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile
+    command: ["pnpm", "--filter", "@demo/catalog", "dev"]
+    environment:
+      PORT: 4103
+    ports:
+      - "4103:4103"
+
+  oidc:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile
+    command: ["pnpm", "--filter", "@demo/oidc", "dev"]
+    environment:
+      PORT: 4001
+      OIDC_ISSUER: http://oidc:4001
+      OIDC_CLIENT_ID: web-bff
+      OIDC_CLIENT_SECRET: super-secret
+      OIDC_JWT_SECRET: jwt-secret
+    ports:
+      - "4001:4001"
+
+  graphql:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile
+    command: ["pnpm", "--filter", "@demo/graphql", "dev"]
+    environment:
+      PORT: 4000
+      USERS_URL: http://users:4101
+      ORDERS_URL: http://orders:4102
+      CATALOG_URL: http://catalog:4103
+    depends_on:
+      - users
+      - orders
+      - catalog
+    ports:
+      - "4000:4000"
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile
+    command: ["pnpm", "--filter", "@demo/web", "exec", "next", "dev", "-H", "0.0.0.0", "-p", "3000"]
+    environment:
+      APP_BASE_URL: http://localhost:3000
+      GRAPHQL_ENDPOINT: http://graphql:4000/graphql
+      OIDC_ISSUER: http://localhost:4001
+      OIDC_CLIENT_ID: web-bff
+      OIDC_CLIENT_SECRET: super-secret
+      OIDC_JWT_SECRET: jwt-secret
+    depends_on:
+      - graphql
+      - oidc
+    ports:
+      - "3000:3000"

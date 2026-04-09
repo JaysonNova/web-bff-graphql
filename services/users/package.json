@@ -1,0 +1,15 @@
+{
+  "name": "@demo/users",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@demo/contracts": "workspace:*",
+    "@hono/node-server": "^1.14.1",
+    "hono": "^4.7.7"
+  }
+}
