@@ -1,6 +1,6 @@
 # Web BFF + GraphQL Demo
 
-Start with [docs/handoff.md](/Users/fangtao/Documents/Codebase/web-bff-graphql-demo/docs/handoff.md) if you are taking this repo over.
+Start with [docs/handoff.md](/Users/fangtao/Documents/Codebase/web-bff-graphql/docs/handoff.md) if you are taking this repo over.
 
 This repository demonstrates a Web-focused architecture with:
 
@@ -10,7 +10,7 @@ This repository demonstrates a Web-focused architecture with:
 - `services/users`, `services/orders`, `services/catalog`: mock downstream services
 - `packages/contracts`: shared fixtures and TypeScript contracts
 
-The browser only talks to `apps/web`. The BFF owns login, callback, session cookies, and trace snapshots. Domain aggregation stays in GraphQL.
+The browser only talks to `apps/web`. The BFF owns login, callback, session cookies, CSRF checks, and trace snapshots. Domain aggregation stays in GraphQL, and GraphQL now accepts only BFF-issued internal JWTs.
 
 ## Demo flow
 
@@ -32,6 +32,12 @@ pnpm build
 pnpm dev
 ```
 
+For production-near local behavior, run Redis and point the web app at it:
+
+```bash
+REDIS_URL=redis://localhost:6379 pnpm dev
+```
+
 Services start on these ports:
 
 - `web`: `3000`
@@ -40,6 +46,7 @@ Services start on these ports:
 - `users`: `4101`
 - `orders`: `4102`
 - `catalog`: `4103`
+- `redis`: `6379`
 
 ## Docker Compose
 
@@ -56,7 +63,8 @@ The web app stays on `http://localhost:3000`.
   - `GET /api/auth/callback`
   - `POST /api/auth/logout`
   - `GET /api/session`
-  - `POST /api/orders/query`
+  - `GET /api/orders`
+  - `GET /api/orders/:id`
   - `GET /api/trace`
 - GraphQL
   - `Query.viewer`

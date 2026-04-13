@@ -23,7 +23,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           <h2>Sign in path</h2>
           <p className="muted">
             Click once. The BFF creates login state, the local OIDC provider issues tokens, and the BFF
-            stores the resulting session in an <code>HttpOnly</code> cookie.
+            stores the resulting session in an <code>HttpOnly</code> session cookie.
           </p>
           {error ? <p className="error">Latest login error: {error}</p> : null}
           <form action="/api/auth/login" method="post">
@@ -36,7 +36,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           <h2>Demo boundaries</h2>
           <div className="card">
             <strong>Web BFF:</strong>
-            <p className="muted">Login callback, session cookie, trace endpoint, and GraphQL calls.</p>
+            <p className="muted">Login callback, session cookie, resource endpoints, and GraphQL calls.</p>
           </div>
           <div className="card">
             <strong>GraphQL:</strong>

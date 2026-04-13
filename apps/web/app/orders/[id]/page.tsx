@@ -28,15 +28,7 @@ export default function OrderDetailPage({ params }: OrderPageProps) {
     let cancelled = false;
 
     async function load() {
-      const response = await fetch("/api/orders/query", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json"
-        },
-        body: JSON.stringify({
-          orderId
-        })
-      });
+      const response = await fetch(`/api/orders/${orderId}`);
 
       if (response.status === 401) {
         window.location.href = "/login";

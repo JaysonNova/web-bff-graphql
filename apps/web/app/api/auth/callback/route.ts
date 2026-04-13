@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { exchangeCodeForTokens, userFromIdToken } from "@/src/lib/oidc-client";
+import { setNoStore } from "@/src/lib/response";
 import { writeSessionCookie } from "@/src/lib/session-cookie";
 import { authRequestStore, sessionStore } from "@/src/lib/stores";
 
@@ -13,16 +14,21 @@ export async function GET(request: Request) {
     return NextResponse.redirect(new URL("/login?error=missing_callback_params", request.url));
   }
 
-  const authRequest = authRequestStore.consume(state);
+  const authRequest = await authRequestStore.consume(state);
 
   if (!authRequest) {
     return NextResponse.redirect(new URL("/login?error=invalid_state", request.url));
   }
 
   try {
-    const tokens = await exchangeCodeForTokens(code);
-    const user = await userFromIdToken(tokens.id_token);
-    const session = sessionStore.create({
+    const tokens = await exchangeCodeForTokens({
+      code,
+      codeVerifier: authRequest.codeVerifier
+    });
+    const user = await userFromIdToken(tokens.id_token, {
+      expectedNonce: authRequest.nonce
+    });
+    const session = await sessionStore.create({
       user,
       tokens: {
         accessToken: tokens.access_token,
@@ -33,7 +39,7 @@ export async function GET(request: Request) {
 
     writeSessionCookie(response, session.id);
 
-    return response;
+    return setNoStore(response);
   } catch {
     return NextResponse.redirect(new URL("/login?error=oidc_callback_failed", request.url));
   }

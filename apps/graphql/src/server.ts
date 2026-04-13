@@ -6,6 +6,7 @@ import { GraphQLError } from "graphql";
 import { SERVICE_PORTS, toViewer, type DemoInventory, type DemoOrder, type DemoProduct, type DemoUser, type ServiceTrace } from "@demo/contracts";
 
 import { aggregateOrderDetail, aggregateOrderSummaries } from "./lib/aggregate-orders";
+import { verifyInternalSessionToken } from "./lib/internal-session-token";
 
 type AppContext = {
   userId: string;
@@ -53,6 +54,9 @@ async function fetchJson<T>(service: string, baseUrl: string, path: string, trac
 const usersUrl = process.env.USERS_URL ?? `http://localhost:${SERVICE_PORTS.users}`;
 const ordersUrl = process.env.ORDERS_URL ?? `http://localhost:${SERVICE_PORTS.orders}`;
 const catalogUrl = process.env.CATALOG_URL ?? `http://localhost:${SERVICE_PORTS.catalog}`;
+const internalJwtIssuer = process.env.INTERNAL_JWT_ISSUER ?? "web-bff";
+const internalJwtAudience = process.env.INTERNAL_JWT_AUDIENCE ?? "graphql";
+const internalJwtSecret = process.env.INTERNAL_JWT_SECRET ?? "internal-jwt-secret";
 const port = Number(process.env.PORT ?? SERVICE_PORTS.graphql);
 
 const yoga = createYoga<AppContext>({
@@ -177,15 +181,34 @@ const yoga = createYoga<AppContext>({
       }
     }
   }),
-  context: ({ request }) => ({
-    userId: request.headers.get("x-demo-user-id") ?? "",
-    trace: [],
-    services: {
-      usersUrl,
-      ordersUrl,
-      catalogUrl
+  context: async ({ request }) => {
+    const authorization = request.headers.get("authorization") ?? "";
+    const bearerToken = authorization.replace(/^Bearer\s+/i, "");
+    let userId = "";
+
+    if (bearerToken) {
+      try {
+        const claims = await verifyInternalSessionToken(bearerToken, {
+          issuer: internalJwtIssuer,
+          audience: internalJwtAudience,
+          secret: internalJwtSecret
+        });
+        userId = claims.userId;
+      } catch {
+        userId = "";
+      }
     }
-  }),
+
+    return {
+      userId,
+      trace: [],
+      services: {
+        usersUrl,
+        ordersUrl,
+        catalogUrl
+      }
+    };
+  },
   plugins: [
     {
       onExecute() {

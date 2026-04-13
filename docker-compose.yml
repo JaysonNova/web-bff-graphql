@@ -1,4 +1,9 @@
 services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
   users:
     build:
       context: .
@@ -36,10 +41,12 @@ services:
     command: ["pnpm", "--filter", "@demo/oidc", "dev"]
     environment:
       PORT: 4001
-      OIDC_ISSUER: http://oidc:4001
+      OIDC_ISSUER: http://localhost:4001
+      INTERNAL_OIDC_ISSUER: http://oidc:4001
       OIDC_CLIENT_ID: web-bff
       OIDC_CLIENT_SECRET: super-secret
       OIDC_JWT_SECRET: jwt-secret
+      OIDC_ALLOWED_REDIRECT_URIS: http://localhost:3000/api/auth/callback
     ports:
       - "4001:4001"
 
@@ -53,6 +60,9 @@ services:
       USERS_URL: http://users:4101
       ORDERS_URL: http://orders:4102
       CATALOG_URL: http://catalog:4103
+      INTERNAL_JWT_ISSUER: web-bff
+      INTERNAL_JWT_AUDIENCE: graphql
+      INTERNAL_JWT_SECRET: internal-jwt-secret
     depends_on:
       - users
       - orders
@@ -66,13 +76,20 @@ services:
       dockerfile: infra/docker/Dockerfile
     command: ["pnpm", "--filter", "@demo/web", "exec", "next", "dev", "-H", "0.0.0.0", "-p", "3000"]
     environment:
-      APP_BASE_URL: http://localhost:3000
+      PUBLIC_APP_BASE_URL: http://localhost:3000
       GRAPHQL_ENDPOINT: http://graphql:4000/graphql
-      OIDC_ISSUER: http://localhost:4001
+      PUBLIC_OIDC_ISSUER: http://localhost:4001
+      INTERNAL_OIDC_ISSUER: http://oidc:4001
       OIDC_CLIENT_ID: web-bff
       OIDC_CLIENT_SECRET: super-secret
       OIDC_JWT_SECRET: jwt-secret
+      REDIS_URL: redis://redis:6379
+      INTERNAL_JWT_ISSUER: web-bff
+      INTERNAL_JWT_AUDIENCE: graphql
+      INTERNAL_JWT_SECRET: internal-jwt-secret
+      ENABLE_TRACE_UI: "true"
     depends_on:
+      - redis
       - graphql
       - oidc
     ports:

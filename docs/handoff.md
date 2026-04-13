@@ -15,19 +15,20 @@ The intended lesson is:
 - Browser traffic stays on the Web BFF
 - Login/session/token handling stays in the Web tier
 - Business aggregation stays in a separate GraphQL layer
+- GraphQL trusts only short-lived BFF-issued internal JWTs
 - Downstream partial failure is exposed in trace data instead of crashing the whole UI
 
 ## Main user flow
 
 1. Open `http://localhost:3000/login`
 2. Submit the login form
-3. Web BFF creates auth request state and redirects to local OIDC
+3. Web BFF creates auth request state plus PKCE verifier and redirects to local OIDC
 4. OIDC redirects back to `/api/auth/callback`
-5. Web BFF exchanges the code, creates a server-side session, and sets `bff_session`
-6. `/orders` calls `/api/orders/query`
-7. Web BFF forwards the request to GraphQL with `x-demo-user-id`
-8. GraphQL aggregates `orders`, `users`, and `catalog`
-9. `/trace` shows the latest orchestration trace stored by the Web BFF
+5. Web BFF exchanges the code with the internal OIDC origin, validates `state` and `nonce`, creates a server-side session, and sets a session cookie
+6. `/orders` calls `GET /api/orders`
+7. Web BFF forwards the request to GraphQL with a short-lived internal JWT
+8. GraphQL validates the internal JWT and aggregates `orders`, `users`, and `catalog`
+9. `/trace` shows the latest orchestration trace stored by the Web BFF when `ENABLE_TRACE_UI=true`
 
 ## Directory guide
 
@@ -40,15 +41,15 @@ The intended lesson is:
 - `apps/web/app/trace/page.tsx`
   Debug/teaching page for session state and downstream trace.
 - `apps/web/app/api/*`
-  Thin BFF endpoints: login, callback, logout, session, orders proxy, trace.
+  Thin BFF endpoints: login, callback, logout, session, orders resources, trace.
 - `apps/web/src/lib/stores.ts`
-  File-backed runtime store for auth requests, sessions, and trace snapshots.
+  Runtime auth/session store with Redis support and in-memory fallback.
 - `apps/graphql/src/server.ts`
-  GraphQL schema and downstream service wiring.
+  GraphQL schema, internal JWT validation, and downstream service wiring.
 - `apps/graphql/src/lib/aggregate-orders.ts`
   Aggregation logic and graceful handling of inventory failures.
 - `apps/oidc/src/lib/provider-core.ts`
-  Minimal local OIDC behavior: authorize, token exchange, ID token verification.
+  Minimal local OIDC behavior with exact redirect URI checks and PKCE validation.
 - `services/*/src/server.ts`
   Mock REST backends.
 
@@ -60,7 +61,8 @@ The intended lesson is:
 - `GET /api/auth/callback`
 - `POST /api/auth/logout`
 - `GET /api/session`
-- `POST /api/orders/query`
+- `GET /api/orders`
+- `GET /api/orders/[id]`
 - `GET /api/trace`
 
 ### GraphQL
@@ -87,7 +89,7 @@ pnpm build
 
 Last verified in this handoff:
 
-- `pnpm test`: pass, `10/10`
+- `pnpm test`: pass, `27/27`
 - `pnpm typecheck`: pass
 - `pnpm build`: pass
 - `docker compose config`: pass
@@ -106,6 +108,7 @@ Ports:
 - `users`: `4101`
 - `orders`: `4102`
 - `catalog`: `4103`
+- `redis`: `6379`
 
 ## Demo-specific behavior
 
@@ -115,29 +118,28 @@ Ports:
 
 ## Runtime storage
 
-The Web BFF uses a file-backed store so session/auth state survives route recompiles in `next dev`.
+The Web BFF supports Redis-backed auth/session state and falls back to in-memory state when `REDIS_URL` is unset.
 
-- Store file: `os.tmpdir()/web-bff-graphql-demo-state.json`
-- On macOS this will usually land under `/var/folders/.../T/web-bff-graphql-demo-state.json`
+- Recommended production-near setting: `REDIS_URL=redis://localhost:6379`
+- Docker Compose enables Redis by default
+- Session timeouts: `30m` idle, `8h` absolute
 
-If you want a clean login/session reset, delete that file and clear the browser cookie or your curl cookie jar.
+If you want a clean local login/session reset in memory mode, restart the web process and clear the browser cookie or curl cookie jar.
 
 ## Docker Compose note
 
-`docker-compose.yml` is included as the container topology starter and `docker compose config` has been validated. The fully verified end-to-end browser flow in this pass is `pnpm dev`.
+`docker-compose.yml` is included as the production-near demo topology. It now includes:
 
-If you want Compose to be the primary demo path, the next improvement should be splitting:
-
+- Redis for shared auth/session state
 - public OIDC origin used in browser redirects
 - internal OIDC origin used by server-side token exchange
-
-That avoids using the same issuer base URL for both host and container networking.
+- shared internal JWT settings between Web BFF and GraphQL
 
 ## Suggested first changes
 
 If another engineer picks this up, the safest next increments are:
 
 1. Add Playwright smoke coverage for login, orders, detail, and trace
-2. Split public/internal OIDC configuration for full Compose E2E verification
-3. Replace the file-backed store with Redis or SQLite if multi-process persistence matters
+2. Add route-level integration tests for auth callback, logout CSRF protection, and trace feature gating
+3. Verify full Docker Compose browser flow end-to-end with Playwright
 4. Add one more downstream service or mutation flow if the demo needs broader coverage

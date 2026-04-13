@@ -18,13 +18,7 @@ export default function OrdersPage() {
     let cancelled = false;
 
     async function load() {
-      const response = await fetch("/api/orders/query", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json"
-        },
-        body: JSON.stringify({})
-      });
+      const response = await fetch("/api/orders");
 
       if (response.status === 401) {
         window.location.href = "/login";
@@ -60,7 +54,7 @@ export default function OrdersPage() {
       <section className="hero">
         <span className="pill">Orders Overview</span>
         <h1>The browser only sees BFF endpoints.</h1>
-        <p>The page calls <code>/api/orders/query</code>. The BFF adds identity context and forwards to GraphQL.</p>
+        <p>The page calls <code>/api/orders</code>. The BFF attaches an internal token and forwards to GraphQL.</p>
       </section>
 
       <section className="row" style={{ marginBottom: 20 }}>

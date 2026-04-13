@@ -1,108 +1,216 @@
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
+import { createClient } from "redis";
 
-import type { AuthRequestRecord } from "./auth-request-store";
-import type { SessionRecord } from "./session-store";
+import {
+  createAuthRequestStore,
+  DEFAULT_AUTH_REQUEST_TTL_MS,
+  type AuthRequestRecord
+} from "./auth-request-store";
+import {
+  createSessionStore,
+  DEFAULT_ABSOLUTE_TIMEOUT_MS,
+  DEFAULT_IDLE_TIMEOUT_MS,
+  type SessionRecord
+} from "./session-store";
 
-type PersistedState = {
-  authRequests: Record<string, AuthRequestRecord>;
-  sessions: Record<string, SessionRecord>;
+const memoryAuthRequestStore = createAuthRequestStore();
+const memorySessionStore = createSessionStore();
+
+type RedisLikeClient = {
+  get(key: string): Promise<string | null>;
+  getDel(key: string): Promise<string | null>;
+  del(key: string): Promise<number>;
+  set(key: string, value: string, options: { EX: number }): Promise<string | null>;
 };
 
-const stateFilePath = process.env.DEMO_STATE_FILE ?? path.join(os.tmpdir(), "web-bff-graphql-demo-state.json");
+let redisClientPromise: Promise<RedisLikeClient> | null = null;
 
-function emptyState(): PersistedState {
-  return {
-    authRequests: {},
-    sessions: {}
-  };
+function getRedisUrl() {
+  return process.env.REDIS_URL ?? "";
 }
 
-function readState(): PersistedState {
-  try {
-    const raw = fs.readFileSync(stateFilePath, "utf8");
-    return JSON.parse(raw) as PersistedState;
-  } catch {
-    return emptyState();
+async function getRedisClient() {
+  const redisUrl = getRedisUrl();
+
+  if (!redisUrl) {
+    return null;
   }
+
+  if (!redisClientPromise) {
+    const client = createClient({
+      url: redisUrl
+    });
+    redisClientPromise = client.connect().then(() => client as RedisLikeClient);
+  }
+
+  return redisClientPromise;
 }
 
-function writeState(state: PersistedState) {
-  fs.writeFileSync(stateFilePath, JSON.stringify(state, null, 2));
+function authRequestKey(state: string) {
+  return `web-bff:auth-requests:${state}`;
+}
+
+function sessionKey(sessionId: string) {
+  return `web-bff:sessions:${sessionId}`;
+}
+
+function buildCodeVerifier() {
+  return Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url");
+}
+
+function nextIdleExpiry(now: Date, absoluteExpiresAt: string, idleTimeoutMs: number) {
+  const candidate = new Date(now.getTime() + idleTimeoutMs).toISOString();
+  return candidate < absoluteExpiresAt ? candidate : absoluteExpiresAt;
+}
+
+function isExpired(session: SessionRecord, now: Date) {
+  const nowIso = now.toISOString();
+  return nowIso >= session.idleExpiresAt || nowIso >= session.absoluteExpiresAt;
+}
+
+function sessionTtlSeconds(session: SessionRecord, now = Date.now()) {
+  const remainingMs = Math.min(Date.parse(session.idleExpiresAt) - now, Date.parse(session.absoluteExpiresAt) - now);
+  return Math.max(1, Math.ceil(remainingMs / 1_000));
+}
+
+function buildSessionRecord(input: Omit<SessionRecord, "id" | "createdAt" | "lastSeenAt" | "idleExpiresAt" | "absoluteExpiresAt" | "lastTrace">) {
+  const createdAt = new Date();
+  const createdAtIso = createdAt.toISOString();
+  const absoluteExpiresAt = new Date(createdAt.getTime() + DEFAULT_ABSOLUTE_TIMEOUT_MS).toISOString();
+
+  return {
+    id: crypto.randomUUID(),
+    user: input.user,
+    tokens: input.tokens,
+    createdAt: createdAtIso,
+    lastSeenAt: createdAtIso,
+    idleExpiresAt: nextIdleExpiry(createdAt, absoluteExpiresAt, DEFAULT_IDLE_TIMEOUT_MS),
+    absoluteExpiresAt,
+    lastTrace: null
+  } satisfies SessionRecord;
+}
+
+async function readSessionFromRedis(client: RedisLikeClient, sessionId: string) {
+  const raw = await client.get(sessionKey(sessionId));
+
+  if (!raw) {
+    return null;
+  }
+
+  return JSON.parse(raw) as SessionRecord;
+}
+
+async function writeSessionToRedis(client: RedisLikeClient, session: SessionRecord) {
+  await client.set(sessionKey(session.id), JSON.stringify(session), {
+    EX: sessionTtlSeconds(session)
+  });
 }
 
 export const authRequestStore = {
-  create(input: { redirectPath: string }) {
-    const state = readState();
+  async create(input: { redirectPath: string }) {
+    const client = await getRedisClient();
+
+    if (!client) {
+      return memoryAuthRequestStore.create(input);
+    }
+
     const request: AuthRequestRecord = {
       state: crypto.randomUUID(),
       nonce: crypto.randomUUID(),
+      codeVerifier: buildCodeVerifier(),
       redirectPath: input.redirectPath,
       createdAt: new Date().toISOString()
     };
 
-    state.authRequests[request.state] = request;
-    writeState(state);
+    await client.set(authRequestKey(request.state), JSON.stringify(request), {
+      EX: Math.ceil(DEFAULT_AUTH_REQUEST_TTL_MS / 1_000)
+    });
 
     return request;
   },
 
-  consume(authState: string) {
-    const state = readState();
-    const request = state.authRequests[authState] ?? null;
+  async consume(authState: string) {
+    const client = await getRedisClient();
 
-    if (request) {
-      delete state.authRequests[authState];
-      writeState(state);
+    if (!client) {
+      return memoryAuthRequestStore.consume(authState);
     }
 
-    return request;
+    const raw = await client.getDel(authRequestKey(authState));
+    return raw ? (JSON.parse(raw) as AuthRequestRecord) : null;
   }
 };
 
 export const sessionStore = {
-  create(input: Omit<SessionRecord, "id" | "createdAt" | "lastTrace">) {
-    const state = readState();
-    const session: SessionRecord = {
-      id: crypto.randomUUID(),
-      user: input.user,
-      tokens: input.tokens,
-      createdAt: new Date().toISOString(),
-      lastTrace: null
-    };
+  async create(input: Omit<SessionRecord, "id" | "createdAt" | "lastSeenAt" | "idleExpiresAt" | "absoluteExpiresAt" | "lastTrace">) {
+    const client = await getRedisClient();
 
-    state.sessions[session.id] = session;
-    writeState(state);
+    if (!client) {
+      return memorySessionStore.create(input);
+    }
+
+    const session = buildSessionRecord(input);
+    await writeSessionToRedis(client, session);
+    return session;
+  },
+
+  async get(sessionId: string) {
+    const client = await getRedisClient();
+
+    if (!client) {
+      return memorySessionStore.get(sessionId);
+    }
+
+    const session = await readSessionFromRedis(client, sessionId);
+
+    if (!session) {
+      return null;
+    }
+
+    const now = new Date();
+
+    if (isExpired(session, now)) {
+      await client.del(sessionKey(sessionId));
+      return null;
+    }
+
+    session.lastSeenAt = now.toISOString();
+    session.idleExpiresAt = nextIdleExpiry(now, session.absoluteExpiresAt, DEFAULT_IDLE_TIMEOUT_MS);
+    await writeSessionToRedis(client, session);
 
     return session;
   },
 
-  get(sessionId: string) {
-    const state = readState();
-    return state.sessions[sessionId] ?? null;
-  },
+  async updateTrace(sessionId: string, trace: SessionRecord["lastTrace"]) {
+    if (!trace) {
+      return null;
+    }
 
-  updateTrace(sessionId: string, trace: SessionRecord["lastTrace"]) {
-    const state = readState();
-    const session = state.sessions[sessionId];
+    const client = await getRedisClient();
 
-    if (!session || !trace) {
+    if (!client) {
+      return memorySessionStore.updateTrace(sessionId, trace);
+    }
+
+    const session = await readSessionFromRedis(client, sessionId);
+
+    if (!session) {
       return null;
     }
 
     session.lastTrace = trace;
-    writeState(state);
+    await writeSessionToRedis(client, session);
 
     return session;
   },
 
-  clear(sessionId: string) {
-    const state = readState();
+  async clear(sessionId: string) {
+    const client = await getRedisClient();
 
-    if (state.sessions[sessionId]) {
-      delete state.sessions[sessionId];
-      writeState(state);
+    if (!client) {
+      await memorySessionStore.clear(sessionId);
+      return;
     }
+
+    await client.del(sessionKey(sessionId));
   }
 };

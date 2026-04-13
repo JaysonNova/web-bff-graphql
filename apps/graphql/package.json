@@ -10,6 +10,7 @@
   "dependencies": {
     "@demo/contracts": "workspace:*",
     "graphql": "^16.10.0",
-    "graphql-yoga": "^5.13.5"
+    "graphql-yoga": "^5.13.5",
+    "jose": "^5.9.6"
   }
 }

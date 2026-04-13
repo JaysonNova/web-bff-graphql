@@ -3,8 +3,8 @@ import type { OrderDetail, OrderSummary, ServiceTrace, TraceSnapshot } from "@de
 import type { SessionRecord } from "./session-store";
 
 type SessionStore = {
-  get(sessionId: string): SessionRecord | null;
-  updateTrace(sessionId: string, trace: TraceSnapshot): SessionRecord | null;
+  get(sessionId: string): Promise<SessionRecord | null>;
+  updateTrace(sessionId: string, trace: TraceSnapshot): Promise<SessionRecord | null>;
 };
 
 type QueryOrdersInput = {
@@ -13,6 +13,7 @@ type QueryOrdersInput = {
   store: SessionStore;
   graphqlEndpoint: string;
   fetchImpl: typeof fetch;
+  createInternalToken(session: SessionRecord): Promise<string>;
 };
 
 type GraphqlResponse<T> = {
@@ -87,18 +88,19 @@ function buildDetailQuery(orderId: string) {
 }
 
 export async function queryOrdersForSession(input: QueryOrdersInput) {
-  const session = input.store.get(input.sessionId);
+  const session = await input.store.get(input.sessionId);
 
   if (!session) {
     throw new Error("UNAUTHENTICATED");
   }
 
   const payload = input.orderId ? buildDetailQuery(input.orderId) : buildListQuery();
+  const internalToken = await input.createInternalToken(session);
   const response = await input.fetchImpl(input.graphqlEndpoint, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-demo-user-id": session.user.id
+      authorization: `Bearer ${internalToken}`
     },
     body: JSON.stringify(payload)
   });
@@ -118,7 +120,7 @@ export async function queryOrdersForSession(input: QueryOrdersInput) {
       : `${(json.data as OrdersListData).orders.length} orders`
   };
 
-  input.store.updateTrace(input.sessionId, trace);
+  await input.store.updateTrace(input.sessionId, trace);
 
   if (input.orderId) {
     return (json.data as OrderDetailData).order;

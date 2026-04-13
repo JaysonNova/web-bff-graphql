@@ -12,14 +12,15 @@ describe("queryOrdersForSession", () => {
         sessionId: "missing",
         store,
         graphqlEndpoint: "http://localhost:4000/graphql",
-        fetchImpl: fetch
+        fetchImpl: fetch,
+        createInternalToken: async () => "signed-session-token"
       })
     ).rejects.toThrow("UNAUTHENTICATED");
   });
 
   it("posts a GraphQL request and stores the trace snapshot", async () => {
     const store = createSessionStore();
-    const session = store.create({
+    const session = await store.create({
       user: {
         id: "user-1",
         name: "Morgan Lee",
@@ -36,11 +37,15 @@ describe("queryOrdersForSession", () => {
       sessionId: session.id,
       store,
       graphqlEndpoint: "http://localhost:4000/graphql",
+      createInternalToken: async (value) => {
+        expect(value.user.id).toBe("user-1");
+        return "signed-session-token";
+      },
       fetchImpl: async (input, init) => {
         expect(String(input)).toContain("/graphql");
         expect(init?.headers).toMatchObject({
           "content-type": "application/json",
-          "x-demo-user-id": "user-1"
+          authorization: "Bearer signed-session-token"
         });
 
         return new Response(
@@ -78,6 +83,6 @@ describe("queryOrdersForSession", () => {
     });
 
     expect(response && "orders" in response && response.orders).toHaveLength(1);
-    expect(store.get(session.id)?.lastTrace?.operationName).toBe("OrdersList");
+    expect((await store.get(session.id))?.lastTrace?.operationName).toBe("OrdersList");
   });
 });

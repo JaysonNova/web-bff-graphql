@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { SignJWT, jwtVerify } from "jose";
 
 import { DEMO_USER } from "@demo/contracts";
@@ -7,6 +9,7 @@ type ProviderCoreOptions = {
   clientId: string;
   clientSecret: string;
   jwtSecret: string;
+  allowedRedirectUris: string[];
 };
 
 type AuthorizationInput = {
@@ -14,6 +17,8 @@ type AuthorizationInput = {
   redirectUri: string;
   state: string;
   nonce: string;
+  codeChallenge: string;
+  codeChallengeMethod: string;
 };
 
 type ExchangeInput = {
@@ -21,6 +26,7 @@ type ExchangeInput = {
   clientId: string;
   clientSecret: string;
   redirectUri: string;
+  codeVerifier: string;
 };
 
 type AuthorizationCodeRecord = {
@@ -28,10 +34,16 @@ type AuthorizationCodeRecord = {
   redirectUri: string;
   nonce: string;
   userId: string;
+  codeChallenge: string;
+  codeChallengeMethod: string;
 };
 
 function secretKey(secret: string) {
   return new TextEncoder().encode(secret);
+}
+
+function toCodeChallenge(codeVerifier: string) {
+  return createHash("sha256").update(codeVerifier).digest("base64url");
 }
 
 export function createProviderCore(options: ProviderCoreOptions) {
@@ -44,13 +56,23 @@ export function createProviderCore(options: ProviderCoreOptions) {
         throw new Error("invalid_client");
       }
 
+      if (!options.allowedRedirectUris.includes(input.redirectUri)) {
+        throw new Error("invalid_redirect_uri");
+      }
+
+      if (input.codeChallengeMethod !== "S256" || !input.codeChallenge) {
+        throw new Error("invalid_request");
+      }
+
       const code = crypto.randomUUID();
 
       authorizationCodes.set(code, {
         clientId: input.clientId,
         redirectUri: input.redirectUri,
         nonce: input.nonce,
-        userId: DEMO_USER.id
+        userId: DEMO_USER.id,
+        codeChallenge: input.codeChallenge,
+        codeChallengeMethod: input.codeChallengeMethod
       });
 
       const redirect = new URL(input.redirectUri);
@@ -68,6 +90,10 @@ export function createProviderCore(options: ProviderCoreOptions) {
       const codeRecord = authorizationCodes.get(input.code);
 
       if (!codeRecord || codeRecord.redirectUri !== input.redirectUri) {
+        throw new Error("invalid_grant");
+      }
+
+      if (codeRecord.codeChallengeMethod !== "S256" || toCodeChallenge(input.codeVerifier) !== codeRecord.codeChallenge) {
         throw new Error("invalid_grant");
       }
 
