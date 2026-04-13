@@ -1,6 +1,6 @@
 # Web BFF + GraphQL Demo
 
-Start with [docs/handoff.md](/Users/fangtao/Documents/Codebase/web-bff-graphql/docs/handoff.md) if you are taking this repo over.
+Start with [docs/handoff.md](docs/handoff.md) if you are taking this repo over.
 
 This repository demonstrates a Web-focused architecture with:
 
