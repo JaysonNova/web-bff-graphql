@@ -10,7 +10,7 @@ This repository demonstrates a Web-focused architecture with:
 - `services/users`, `services/orders`, `services/catalog`: mock downstream services
 - `packages/contracts`: shared fixtures and TypeScript contracts
 
-The browser only talks to `apps/web`. The BFF owns login, callback, session cookies, CSRF checks, and trace snapshots. Domain aggregation stays in GraphQL, and GraphQL now accepts only BFF-issued internal JWTs.
+The browser only talks to `apps/web`. The BFF owns login, callback, session cookies, CSRF checks, and trace snapshots. Domain aggregation stays in GraphQL, and GraphQL now accepts only BFF-issued internal JWTs through an internal Apollo Server subgraph runtime.
 
 ## Demo flow
 
@@ -30,6 +30,13 @@ pnpm test
 pnpm typecheck
 pnpm build
 pnpm dev
+```
+
+Useful GraphQL-only commands:
+
+```bash
+pnpm --filter @demo/graphql typecheck
+pnpm --filter @demo/graphql schema:print
 ```
 
 For production-near local behavior, run Redis and point the web app at it:
@@ -67,6 +74,10 @@ The web app stays on `http://localhost:3000`.
   - `GET /api/orders/:id`
   - `GET /api/trace`
 - GraphQL
+  - `GET /health`
+  - `GET /ready`
   - `Query.viewer`
   - `Query.orders`
   - `Query.order(id)`
+
+The internal GraphQL response includes `extensions.bffTrace`, which the Web BFF stores in session state for the `/trace` page. This keeps trace visibility inside the BFF boundary rather than exposing GraphQL directly to the browser.

@@ -63,6 +63,8 @@ services:
       INTERNAL_JWT_ISSUER: web-bff
       INTERNAL_JWT_AUDIENCE: graphql
       INTERNAL_JWT_SECRET: internal-jwt-secret
+      GRAPHQL_ENABLE_SANDBOX: "false"
+      GRAPHQL_ENABLE_INTROSPECTION: "false"
     depends_on:
       - users
       - orders

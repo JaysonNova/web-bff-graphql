@@ -35,6 +35,7 @@ describe("createSessionStore", () => {
     await store.updateTrace(session.id, {
       operationName: "OrdersList",
       generatedAt: "2026-04-09T10:00:00.000Z",
+      status: "ok",
       downstream: [],
       resultSummary: "2 orders"
     });

@@ -1,4 +1,4 @@
-import type { OrderDetail, OrderSummary, ServiceTrace, TraceSnapshot } from "@demo/contracts";
+import type { BffTraceExtension, OrderDetail, OrderSummary, TraceSnapshot } from "@demo/contracts";
 
 import type { SessionRecord } from "./session-store";
 
@@ -18,9 +18,14 @@ type QueryOrdersInput = {
 
 type GraphqlResponse<T> = {
   data?: T;
-  errors?: Array<{ message: string }>;
+  errors?: Array<{
+    message: string;
+    extensions?: {
+      code?: string;
+    };
+  }>;
   extensions?: {
-    trace?: ServiceTrace[];
+    bffTrace?: BffTraceExtension;
   };
 };
 
@@ -108,17 +113,20 @@ export async function queryOrdersForSession(input: QueryOrdersInput) {
   const json = (await response.json()) as GraphqlResponse<OrdersListData | OrderDetailData>;
 
   if (!response.ok || json.errors?.length) {
-    throw new Error(json.errors?.[0]?.message ?? "GRAPHQL_REQUEST_FAILED");
+    throw new Error(json.errors?.[0]?.extensions?.code ?? json.errors?.[0]?.message ?? "GRAPHQL_REQUEST_FAILED");
   }
 
-  const trace: TraceSnapshot = {
-    operationName: payload.operationName,
-    generatedAt: new Date().toISOString(),
-    downstream: json.extensions?.trace ?? [],
-    resultSummary: input.orderId
-      ? `detail ${input.orderId}`
-      : `${(json.data as OrdersListData).orders.length} orders`
-  };
+  const trace: TraceSnapshot =
+    json.extensions?.bffTrace ??
+    {
+      operationName: payload.operationName,
+      generatedAt: new Date().toISOString(),
+      status: "ok",
+      downstream: [],
+      resultSummary: input.orderId
+        ? `detail ${input.orderId}`
+        : `${(json.data as OrdersListData).orders.length} orders`
+    };
 
   await input.store.updateTrace(input.sessionId, trace);
 

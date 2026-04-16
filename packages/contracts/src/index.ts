@@ -41,6 +41,15 @@ export type ServiceTrace = {
   detail?: string;
 };
 
+export type TraceStatus = "ok" | "partial" | "error";
+
+export type GraphqlErrorCode =
+  | "UNAUTHENTICATED"
+  | "FORBIDDEN"
+  | "NOT_FOUND"
+  | "DOWNSTREAM_SERVICE_ERROR"
+  | "INTERNAL_SERVER_ERROR";
+
 export type Viewer = {
   id: string;
   name: string;
@@ -78,9 +87,12 @@ export type OrderDetail = {
 export type TraceSnapshot = {
   operationName: string;
   generatedAt: string;
+  status: TraceStatus;
   downstream: ServiceTrace[];
   resultSummary: string;
 };
+
+export type BffTraceExtension = TraceSnapshot;
 
 export type SessionUser = Viewer;
 

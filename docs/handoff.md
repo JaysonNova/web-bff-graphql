@@ -15,7 +15,7 @@ The intended lesson is:
 - Browser traffic stays on the Web BFF
 - Login/session/token handling stays in the Web tier
 - Business aggregation stays in a separate GraphQL layer
-- GraphQL trusts only short-lived BFF-issued internal JWTs
+- GraphQL runs as an internal Apollo Server subgraph and trusts only short-lived BFF-issued internal JWTs
 - Downstream partial failure is exposed in trace data instead of crashing the whole UI
 
 ## Main user flow
@@ -27,7 +27,7 @@ The intended lesson is:
 5. Web BFF exchanges the code with the internal OIDC origin, validates `state` and `nonce`, creates a server-side session, and sets a session cookie
 6. `/orders` calls `GET /api/orders`
 7. Web BFF forwards the request to GraphQL with a short-lived internal JWT
-8. GraphQL validates the internal JWT and aggregates `orders`, `users`, and `catalog`
+8. GraphQL validates the internal JWT, aggregates `orders`, `users`, and `catalog`, and returns structured `extensions.bffTrace`
 9. `/trace` shows the latest orchestration trace stored by the Web BFF when `ENABLE_TRACE_UI=true`
 
 ## Directory guide
@@ -44,8 +44,12 @@ The intended lesson is:
   Thin BFF endpoints: login, callback, logout, session, orders resources, trace.
 - `apps/web/src/lib/stores.ts`
   Runtime auth/session store with Redis support and in-memory fallback.
+- `apps/graphql/src/app.ts`
+  Apollo Server + Express host with health/readiness endpoints and internal-only GraphQL mounting.
+- `apps/graphql/src/schema.ts`
+  Federation-compatible subgraph schema assembly from domain modules.
 - `apps/graphql/src/server.ts`
-  GraphQL schema, internal JWT validation, and downstream service wiring.
+  Runtime bootstrap and signal handling.
 - `apps/graphql/src/lib/aggregate-orders.ts`
   Aggregation logic and graceful handling of inventory failures.
 - `apps/oidc/src/lib/provider-core.ts`
@@ -67,6 +71,8 @@ The intended lesson is:
 
 ### GraphQL
 
+- `GET /health`
+- `GET /ready`
 - `Query.viewer`
 - `Query.orders`
 - `Query.order(id)`
@@ -85,6 +91,7 @@ pnpm install
 pnpm test
 pnpm typecheck
 pnpm build
+pnpm --filter @demo/graphql schema:print
 ```
 
 Last verified in this handoff:
@@ -115,6 +122,7 @@ Ports:
 - `services/catalog/src/server.ts` intentionally returns `503` for `/inventory/prod-2`
 - `/orders/[id]` still renders order detail when that happens
 - `/trace` should show the failed downstream call in `lastTrace.downstream`
+- `lastTrace` is populated from the GraphQL `extensions.bffTrace` payload, not by browser-side GraphQL access
 
 ## Runtime storage
 
